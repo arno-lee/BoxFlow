@@ -12,56 +12,36 @@ public class HelloWorld {
       System.out.println("Testing Boxes With Wires ...");
 
       Wire inputToA = new Wire();
-      Wire wireAtoB = new Wire();
-      Wire wireBtoC123 = new Wire();
-      Wire wireC1toG = new Wire();
-      Wire wireC2toG = new Wire();
-      Wire wireC3toG = new Wire();
+      Wire linkAToC12G = new Wire();
+      Wire linkC1ToG = new Wire();
+      Wire linkC2ToG = new Wire();
+        
       Wire outputFromG = new Wire();
 
-      Wire bypassBtoG = new Wire();
-      Wire feedbackGtoG = new Wire();
-
-
       Box boxA = new Box(inputToA, "A", 
-         FHelper.fHelper1("A", 10), wireAtoB);
-      Box boxB = new Box(boxA.getOutput(), "B", 
-         FHelper.fHelper1("B", 1000), wireBtoC123);
-      Box boxC1 = new Box(boxB.getOutput(), "C1", 
-         FHelper.fHelper1("C1", 2), wireC1toG);
-      Box boxC2 = new Box(boxB.getOutput(), "C2", 
-         FHelper.fHelper1("C2", 3), wireC2toG);
-      Box boxC3 = new Box(boxB.getOutput(), "C3", 
-         FHelper.fHelper1("C3", 5), wireC3toG);
-      
-      Box boxG = new Box(new Wire[]{wireC1toG, wireC2toG, wireC3toG}, "G", 
-         FHelper.fHelper3("G", 7, 11, 17), outputFromG);
+         FHelper.fHelper1("A", 10), linkAToC12G);
+      Box boxC1 = new Box(linkAToC12G, "C1", 
+         FHelper.fHelper1("C1", 10), linkC1ToG);
+      Box boxC2 = new Box(linkAToC12G, "C2", 
+         FHelper.fHelper1("C2", 20), linkC2ToG);
+      Box boxG = new Box(new Wire[]{linkAToC12G, linkC1ToG, linkC2ToG}, "G", 
+         FHelper.fHelper3("G", 1000, 2011, 3000), outputFromG);
 
       inputToA.addDownstream(boxA);
 
-      wireAtoB.setUpstream(boxA);
-      wireAtoB.addDownstream(boxB);
+      linkAToC12G.setUpstream(boxA);
+      linkAToC12G.addDownstream(boxC1);
+      linkAToC12G.addDownstream(boxC2);
+      linkAToC12G.addDownstream(boxG);
 
-      wireBtoC123.setUpstream(boxB);
-      wireBtoC123.addDownstream(boxC1);
-      wireBtoC123.addDownstream(boxC2);
-      wireBtoC123.addDownstream(boxG);
+      linkC1ToG.setUpstream(boxC1);
+      linkC1ToG.addDownstream(boxG);
 
-      wireC1toG.setUpstream(boxC1);
-      wireC1toG.addDownstream(boxG);
-
-      wireC2toG.setUpstream(boxC2);
-      wireC2toG.addDownstream(boxG);
-
-      wireC3toG.setUpstream(boxC3);
-      wireC3toG.addDownstream(boxG);
-
-      // feedbackGtoG.setUpstream(boxG);
-      // feedbackGtoG.addDownstream(boxG, new Signal(new Integer[]{1}));
+      linkC2ToG.setUpstream(boxC2);
+      linkC2ToG.addDownstream(boxG);
 
       // Test the setup
-      inputToA.feed(new Signal(new Integer[]{5}));
-      inputToA.feed(new Signal(new Integer[]{15}));
+      inputToA.feed(new Signal(new Integer[]{1}));
    }
 }
 
@@ -78,9 +58,9 @@ public class Signal {
       this.data = data;
    }
 
-   public static Signal compose(ArrayList<Signal> data) {
+   public static Signal compose(Signal[] data) {
       Signal composed = new Signal();
-      composed.data = new Object[data.size()];
+      composed.data = new Object[data.length];
 
       int index = 0;
       for (Signal s : data) {
@@ -100,13 +80,17 @@ public class Wire {
       this.upstreamBox = upstreamBox;
    }
 
+   public String getUpstreamID(){
+      return (upstreamBox == null) ? "no upstream" : upstreamBox.getID();
+   }
+
    public void addDownstream(Box downstreamBox) {
       this.downstreamBoxes.add(downstreamBox);
    }
 
    public void addDownstream(Box downstreamBox, Signal pullUp) {
       this.downstreamBoxes.add(downstreamBox);
-      downstreamBox.process(pullUp);
+      downstreamBox.process(pullUp, this);
    }
 
    public Wire() {
@@ -126,8 +110,8 @@ public class Wire {
 
    public void feed(Signal input) {
       for (Box downstreamBox : downstreamBoxes) {
-         System.out.println("\n   "+downstreamBox.getID()+" fired!");
-         downstreamBox.process(input);
+         // System.out.println("\n   "+downstreamBox.getID()+" fired!");
+         downstreamBox.process(input, this);
       }
    }
 }
@@ -146,33 +130,53 @@ public class Box {
       return output;
    }
 
-   private ArrayList<Signal> arrivedSignals;
+   private Signal[] arrivedSignals;
+   private int numOfArrivedSignals = 0;
+   private HashMap<Wire, Integer> pinOut;
 
    private Function<Signal, Signal> action;
 
-   public Box(Wire[] inputs, String id, Function<Signal, Signal> action, Wire output) {   
+   public Box(Wire[] inputs, String id, 
+              Function<Signal, Signal> action, Wire output) {   
       boxID = id;
 
       this.inputs = inputs;
       this.action = action;
       this.output = output;
 
-      arrivedSignals = new ArrayList<Signal>();
+      arrivedSignals = new Signal[inputs.length];
+      pinOut = new HashMap<Wire, Integer>();
+      int pinIndex = 0;
+      for (Wire in : inputs) {
+         pinOut.put(in, pinIndex++);
+      }
+   }
+
+   public void checkPinOut() {
+      for (Wire w : pinOut.keySet()) {
+         System.out.println("  -> "+w.getUpstreamID()
+            +" @ "+ pinOut.get(w));
+      }
    }
 
    public Box(Wire input, String id, Function<Signal, Signal> action, Wire output) {   
       this(new Wire[]{input}, id, action, output);
    }
 
-   public void process(Signal input) {
-      arrivedSignals.add(input);
-         System.out.println("   "+this.getID()+" # of arrived signals: "
-                  +this.arrivedSignals.size());
-      if (inputs.length == arrivedSignals.size()) {    
+   public void process(Signal input, Wire source) {
+         if (this.getID() == "G") {
+            System.out.println(" |-> "+input.getData()[0]+
+               " @PIN "+pinOut.get(source));
+         }
+      arrivedSignals[pinOut.get(source)] = input;
+      numOfArrivedSignals++;
+         // System.out.println("   "+this.getID()+" # of arrived signals: "
+         //          +this.arrivedSignals.size());
+      if (numOfArrivedSignals == inputs.length) {    
          Signal composedInput = Signal.compose(arrivedSignals),
                 actionResult = action.apply(composedInput);
 
-         arrivedSignals.clear(); // <- to Git !
+         numOfArrivedSignals = 0;
 
          output.feed(actionResult);
       } 
@@ -184,10 +188,10 @@ public class FHelper {
       return (i) -> {
          int inp = (int)i.getData()[0];
             
-         System.out.print(id+" engaged with "+inp);
-         System.out.println(" | param is "+param);
+         System.out.print("\n"+id+" engaged with "+inp);
+         System.out.print(" | param is "+param);
          int res = inp*param;
-         System.out.println(id+" result "+res);
+         System.out.print(" | result "+res);
 
          return new Signal(new Integer[]{res});
       };

@@ -147,6 +147,8 @@ public class Box {
    }
 
    private ArrayList<Signal> arrivedSignals;
+   private numOfArrivedSignals = 0;
+   private HashMap<Wire, Integer> pinOut;
 
    private Function<Signal, Signal> action;
 
